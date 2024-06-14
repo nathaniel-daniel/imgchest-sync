@@ -1,0 +1,23 @@
+[package]
+name = "imgchest-sync"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.86"
+argh = "0.1.12"
+base16ct = { version = "0.2.0", features = [ "alloc" ] }
+camino = { version = "1.1.7", features = ["serde1"] }
+imgchest = { git = "https://github.com/nathaniel-daniel/imgchest-rs", version = "0.0.0", default-features = false }
+nd-util = { git = "https://github.com/nathaniel-daniel/nd-util-rs", version = "0.0.0" }
+serde = { version = "1.0.203", features = [ "derive" ] }
+sha2 = "0.10.8"
+tokio = { version = "1.38.0", features = [ "rt-multi-thread" ] }
+toml = "0.8.14"
+toml_edit = "0.22.14"
+
+[features]
+default = [ "rustls-tls" ]
+
+native-tls = [ "imgchest/native-tls" ]
+rustls-tls = [ "imgchest/rustls-tls" ]
