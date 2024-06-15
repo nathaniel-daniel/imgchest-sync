@@ -75,6 +75,7 @@ async fn async_main(options: Options) -> anyhow::Result<()> {
         let file_type = entry.file_type().await?;
         let entry_path = entry.path();
         let entry_path: &Utf8Path = entry_path.as_path().try_into()?;
+        let entry_file_name = entry_path.file_name().context("missing file name")?;
 
         if !file_type.is_dir() {
             continue;
@@ -92,6 +93,8 @@ async fn async_main(options: Options) -> anyhow::Result<()> {
             None => continue,
         };
 
+        println!("syncing \"{entry_file_name}\"");
+
         let mut cache = None;
         if !options.no_read_cache {
             cache = match crate::util::try_read_to_string(&cache_path)
@@ -103,7 +106,7 @@ async fn async_main(options: Options) -> anyhow::Result<()> {
                     {
                         Ok(cache) => Some(cache),
                         Err(error) => {
-                            eprintln!("{error:?}");
+                            eprintln!("  {error:?}");
                             None
                         }
                     }
@@ -137,12 +140,19 @@ async fn async_main(options: Options) -> anyhow::Result<()> {
                     .all(|diff| matches!(diff, PostDiff::RetainFile { .. }));
 
                 if options.print_diffs {
-                    println!("Diffs: {diffs:#?}");
+                    println!("  diffs: [");
+                    for diff in diffs.iter() {
+                        println!("    {diff:?},");
+                    }
+                    println!("  ]");
                 }
 
                 if !diff_empty {
+                    println!("  updating post");
                     update_online_post(&client, id, diffs, old_post, &mut new_post, &cache_path)
                         .await?;
+                } else {
+                    println!("  no changes");
                 }
             }
             None => {
@@ -233,7 +243,8 @@ async fn create_post_from_post_config(
             let sha256 = {
                 let path = path.clone();
                 tokio::task::spawn_blocking(move || {
-                    let mut file = std::fs::File::open(path)?;
+                    let mut file = std::fs::File::open(&path)
+                        .with_context(|| format!("failed to open \"{path}\""))?;
 
                     let mut hasher = Sha256::new();
                     std::io::copy(&mut file, &mut hasher)?;

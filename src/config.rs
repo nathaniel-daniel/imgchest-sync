@@ -164,6 +164,13 @@ impl<'a> PostConfig<'a> {
             }
         };
 
+        // The toml_edit library,
+        // the library meant for editing toml,
+        // has absolutely no way to specify where an inserted key goes.
+        //
+        // Additionally, the library's abstract table interface is incomplete,
+        // not allowing a custom comparator for sort.
+        // This means that it is impossible to choose where this insert will go.
         self.table.insert("id", toml_edit::value(id));
     }
 
