@@ -606,8 +606,8 @@ mod test {
         let actual_diffs =
             generate_post_diffs(&old_post, &new_post).expect("failed to generate diffs");
         let expected_diffs = vec![
-            PostDiff::RemoveFile { index: 0 },
             PostDiff::AddFile { index: 0 },
+            PostDiff::RemoveFile { index: 0 },
         ];
         assert!(actual_diffs == expected_diffs);
 
