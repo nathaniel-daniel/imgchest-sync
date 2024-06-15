@@ -351,7 +351,13 @@ async fn update_online_post(
                     .nsfw(nsfw);
             }
             PostDiff::RetainFile { index } => {
-                new_post.files[index].id = old_post.files[index].id.clone();
+                new_post.files[index].id = Some(
+                    old_post.files[index]
+                        .id
+                        .as_ref()
+                        .context("old post missing id")?
+                        .clone(),
+                );
             }
             PostDiff::AddFile { index } => {
                 let path = new_post.files[index]

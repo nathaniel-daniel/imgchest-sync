@@ -1,5 +1,5 @@
 # imgchest-sync
-A CLI to sync folders of images to https://imgchest.com.
+A CLI to upload and sync folders of images to https://imgchest.com.
 
 ## Installation
 1. [Install Cargo](https://doc.rust-lang.org/cargo/getting-started/installation.html)
@@ -36,7 +36,8 @@ privacy = "<the post privacy>"
 
 # The nsfw flag of the post.
 # It is optional, and defaults to false.
-nsfw = <true/false>
+# Valid values are: true, false
+nsfw = false
 
 # This is an array of images to upload.
 # You are required to have at least one.
