@@ -185,7 +185,14 @@ async fn async_main(options: Options) -> anyhow::Result<()> {
             }
             None => {
                 let mut builder = imgchest::CreatePostBuilder::new();
-                builder.title(new_post.title.clone());
+                builder
+                    .title(new_post.title.clone())
+                    .privacy(match new_post.privacy {
+                        PostPrivacy::Public => imgchest::PostPrivacy::Public,
+                        PostPrivacy::Hidden => imgchest::PostPrivacy::Hidden,
+                        PostPrivacy::Secret => imgchest::PostPrivacy::Secret,
+                    })
+                    .nsfw(new_post.nsfw);
 
                 for file in new_post.files.iter() {
                     let path = file.path.as_ref().context("missing path")?;
@@ -196,6 +203,7 @@ async fn async_main(options: Options) -> anyhow::Result<()> {
                     builder.image(file);
                 }
 
+                println!("  creating new post");
                 let imgchest_post = client
                     .create_post(builder)
                     .await
