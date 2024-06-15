@@ -114,7 +114,19 @@ impl Config {
 
             let _path = table
                 .get("path")
-                .with_context(|| format!("file {file_n} of post config missing \"path\""))?;
+                .with_context(|| format!("file {file_n} of post config missing \"path\""))?
+                .as_str()
+                .with_context(|| {
+                    format!("file {file_n} of post config \"path\" key is not a string")
+                });
+            let _description = table
+                .get("description")
+                .map(|item| {
+                    item.as_str().with_context(|| {
+                        format!("file {file_n} of post config \"description\" key is not a string")
+                    })
+                })
+                .transpose()?;
         }
 
         Ok(Self { document })
@@ -257,6 +269,13 @@ impl<'a> PostConfigFile<'a> {
             .expect("missing path")
             .as_str()
             .expect("path is not a str")
+    }
+
+    /// The file description
+    pub fn description(&self) -> Option<&str> {
+        self.table
+            .get("description")
+            .map(|item| item.as_str().expect("description is not a str"))
     }
 }
 

@@ -73,6 +73,13 @@ pub enum PostDiff {
         /// The new nsfw setting.
         nsfw: bool,
     },
+    EditFileDescription {
+        /// The id of the file to edit
+        index: usize,
+
+        /// The new file description
+        description: String,
+    },
     RetainFile {
         /// The index of the file to retain.
         index: usize,

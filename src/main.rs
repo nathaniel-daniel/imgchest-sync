@@ -13,6 +13,7 @@ use anyhow::ensure;
 use anyhow::Context;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
+use regex::Regex;
 use sha2::Digest;
 use sha2::Sha256;
 
@@ -54,6 +55,13 @@ pub struct Options {
         description = "whether the generated post diffs should be printed"
     )]
     pub print_diffs: bool,
+
+    #[argh(
+        option,
+        long = "filter-regex",
+        description = "only process directory entry names accepted by the provided regex"
+    )]
+    pub filter_regex: Option<String>,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -70,6 +78,13 @@ async fn async_main(options: Options) -> anyhow::Result<()> {
     let client = imgchest::Client::new();
     client.set_token(options.token);
 
+    let filter_regex = options
+        .filter_regex
+        .map(|filter_regex| {
+            Regex::new(&format!("^{filter_regex}$")).context("invalid filter regex")
+        })
+        .transpose()?;
+
     let mut dir_iter = tokio::fs::read_dir(&options.input).await?;
     while let Some(entry) = dir_iter.next_entry().await? {
         let file_type = entry.file_type().await?;
@@ -79,6 +94,12 @@ async fn async_main(options: Options) -> anyhow::Result<()> {
 
         if !file_type.is_dir() {
             continue;
+        }
+
+        if let Some(filter_regex) = filter_regex.as_ref() {
+            if !filter_regex.is_match(entry_file_name) {
+                continue;
+            }
         }
 
         let dir_path = options.input.join(entry_path);
@@ -153,6 +174,13 @@ async fn async_main(options: Options) -> anyhow::Result<()> {
                         .await?;
                 } else {
                     println!("  no changes");
+
+                    // Copy file ids
+                    for (new_file, old_file) in new_post.files.iter_mut().zip(old_post.files.iter())
+                    {
+                        let id = old_file.id.as_ref().context("missing old id")?.clone();
+                        new_file.id = Some(id);
+                    }
                 }
             }
             None => {
@@ -233,6 +261,8 @@ async fn create_post_from_post_config(
         let files_config = post_config.files();
         let mut files = Vec::with_capacity(files_config.len());
         for file in files_config.iter() {
+            let description = file.description().unwrap_or("").into();
+
             let path = Utf8Path::new(file.path());
             let path = if path.is_relative() {
                 dir_path.join(path)
@@ -257,7 +287,7 @@ async fn create_post_from_post_config(
             };
 
             files.push(PostFile {
-                description: String::new(),
+                description,
                 sha256,
                 path: Some(path),
                 id: None,
@@ -290,6 +320,11 @@ async fn create_post_from_online(client: &imgchest::Client, id: &str) -> anyhow:
     let files = {
         let mut files = Vec::new();
         for image in Vec::from(imgchest_post.images).into_iter() {
+            let description = image
+                .description
+                .map(String::from)
+                .unwrap_or_else(String::new);
+
             let handle = tokio::runtime::Handle::current();
             let mut image_response = client
                 .client
@@ -311,7 +346,7 @@ async fn create_post_from_online(client: &imgchest::Client, id: &str) -> anyhow:
             .await??;
 
             files.push(PostFile {
-                description: String::new(),
+                description,
                 sha256,
                 path: None,
                 id: Some(image.id.into()),
@@ -340,6 +375,7 @@ async fn update_online_post(
     let mut files_to_remove = Vec::new();
     let mut files_to_add_indicies = Vec::new();
     let mut files_to_add = Vec::new();
+    let mut file_updates = Vec::new();
     for diff in diffs {
         match diff {
             PostDiff::EditTitle { title } => {
@@ -361,21 +397,30 @@ async fn update_online_post(
                     .get_or_insert_with(imgchest::UpdatePostBuilder::new)
                     .nsfw(nsfw);
             }
+            PostDiff::EditFileDescription { index, description } => {
+                let id = old_post.files[index]
+                    .id
+                    .as_ref()
+                    .context("old post missing id")?
+                    .clone();
+                file_updates.push(imgchest::FileUpdate { id, description });
+            }
             PostDiff::RetainFile { index } => {
-                new_post.files[index].id = Some(
-                    old_post.files[index]
-                        .id
-                        .as_ref()
-                        .context("old post missing id")?
-                        .clone(),
-                );
+                let id = old_post.files[index]
+                    .id
+                    .as_ref()
+                    .context("old post missing id")?
+                    .clone();
+                new_post.files[index].id = Some(id);
             }
             PostDiff::AddFile { index } => {
                 let path = new_post.files[index]
                     .path
                     .as_ref()
                     .context("missing path")?;
-                let file = imgchest::UploadPostFile::from_path(path).await?;
+                let file = imgchest::UploadPostFile::from_path(path)
+                    .await
+                    .with_context(|| format!("failed to open \"{path}\" for upload"))?;
                 files_to_add.push(file);
                 files_to_add_indicies.push(index);
             }
@@ -392,21 +437,49 @@ async fn update_online_post(
     // Nuke the cache.
     // We cannot perform the diff atomically.
     // If the update is interrupted, the cache will reflect bad data.
-    tokio::fs::remove_file(&cache_path).await?;
+    match tokio::fs::remove_file(&cache_path).await {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => {
+            return Err(error).context("failed to remove cache file");
+        }
+    }
 
     if let Some(update_post_builder) = update_post_builder {
         client.update_post(id, update_post_builder).await?;
     }
 
+    if !files_to_add.is_empty() {
+        let imgchest_post = client.add_post_images(id, files_to_add).await?;
+        for (i, file_index) in files_to_add_indicies.into_iter().enumerate() {
+            let imgchest_image = &imgchest_post.images[old_post.files.len() + i];
+            let new_post_file = &mut new_post.files[file_index];
+
+            let id = String::from(imgchest_image.id.clone());
+            let description = &new_post_file.description;
+
+            new_post_file.id = Some(id.clone());
+
+            // If the new description is empty,
+            // do nothing.
+            // We just created a new post,
+            // so it must be empty already.
+            if !description.is_empty() {
+                file_updates.push(imgchest::FileUpdate {
+                    id,
+                    description: description.clone(),
+                });
+            }
+        }
+    }
+
+    // This needs to happen after we add our files, in case the post is empied.
     for id in files_to_remove.iter() {
         client.delete_file(id).await?;
     }
 
-    if !files_to_add.is_empty() {
-        let imgchest_post = client.add_post_images(id, files_to_add).await?;
-        for index in files_to_add_indicies {
-            new_post.files[index].id = Some(imgchest_post.images[index].id.clone().into());
-        }
+    if !file_updates.is_empty() {
+        client.update_files_bulk(file_updates).await?;
     }
 
     Ok(())
@@ -451,20 +524,37 @@ fn generate_post_diffs(old: &Post, new: &Post) -> anyhow::Result<Vec<PostDiff>> 
     while let (Some(old_file), Some(new_file)) =
         (old.files.get(prefix_index), new.files.get(prefix_index))
     {
-        // TODO: Account for description.
+        // TODO: It is possible to keep searching after a mismatch here
+        // if we can make the file sequence match again by only deleting from the old post.
         if old_file.sha256 != new_file.sha256 {
             break;
+        }
+
+        let mut edit_description = false;
+        if old_file.description != new_file.description {
+            // We know that the description needs an update.
+            // However, the API does not allow clearing a description.
+            // In this case, we are forced to recreate the file.
+            // As a result, we are forced to end our same file prefix search.
+            if new_file.description.is_empty() {
+                break;
+            } else {
+                edit_description = true;
+            }
         }
 
         diffs.push(PostDiff::RetainFile {
             index: prefix_index,
         });
 
-        prefix_index += 1;
-    }
+        if edit_description {
+            diffs.push(PostDiff::EditFileDescription {
+                index: prefix_index,
+                description: new_file.description.clone(),
+            });
+        }
 
-    for index in prefix_index..old.files.len() {
-        diffs.push(PostDiff::RemoveFile { index });
+        prefix_index += 1;
     }
 
     for index in prefix_index..new.files.len() {
@@ -474,7 +564,9 @@ fn generate_post_diffs(old: &Post, new: &Post) -> anyhow::Result<Vec<PostDiff>> 
         diffs.push(PostDiff::AddFile { index });
     }
 
-    // TODO: Emit description diffs
+    for index in prefix_index..old.files.len() {
+        diffs.push(PostDiff::RemoveFile { index });
+    }
 
     anyhow::Ok(diffs)
 }
@@ -583,6 +675,40 @@ mod test {
         let actual_diffs =
             generate_post_diffs(&old_post, &new_post).expect("failed to generate diffs");
         let expected_diffs = vec![PostDiff::RetainFile { index: 0 }];
+        assert!(actual_diffs == expected_diffs);
+
+        let old_post = Post {
+            title: String::from("title"),
+            privacy: PostPrivacy::Hidden,
+            nsfw: false,
+            files: vec![PostFile {
+                description: String::new(),
+                sha256: SHA256_A.into(),
+                id: None,
+                path: None,
+            }],
+        };
+        let new_post = Post {
+            title: String::from("title"),
+            privacy: PostPrivacy::Hidden,
+            nsfw: false,
+            files: vec![PostFile {
+                description: "hello world!".into(),
+                sha256: SHA256_A.into(),
+                id: None,
+                path: None,
+            }],
+        };
+        let actual_diffs =
+            generate_post_diffs(&old_post, &new_post).expect("failed to generate diffs");
+        let expected_diffs = vec![
+            PostDiff::RetainFile { index: 0 },
+            PostDiff::EditFileDescription {
+                index: 0,
+                description: "hello world!".into(),
+            },
+        ];
+        dbg!(&actual_diffs);
         assert!(actual_diffs == expected_diffs);
     }
 }

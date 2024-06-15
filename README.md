@@ -9,10 +9,10 @@ cargo install --git https://github.com/nathaniel-daniel/imgchest-sync
 ```
 
 ## Usage
-You need an api token to use this program.
+You need an API token to use this program.
 It is used from a terminal like so:
 ```bash
-imgchest-sync --token <TOKEN> --input <input_directory>
+imgchest-sync --token "<TOKEN>" --input "<input_directory>"
 ```
 
 ### Post Config
@@ -45,6 +45,11 @@ nsfw = false
 # This is the path to the file to upload.
 # This is required.
 path = "<path to file>"
+
+# This is the description of the file.
+# It supports markdown.
+# This is optional.
+description = "<description>"
 
 [[post.files]]
 path = "<path to file>"
