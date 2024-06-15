@@ -1,96 +1,19 @@
 mod config;
+mod post;
 mod util;
 
 use crate::config::Config;
 use crate::config::PostConfig;
+use crate::post::Post;
+use crate::post::PostDiff;
+use crate::post::PostFile;
+use crate::post::PostPrivacy;
 use anyhow::ensure;
 use anyhow::Context;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use sha2::Digest;
 use sha2::Sha256;
-use std::collections::VecDeque;
-
-/// Representation of a post.
-#[derive(Debug, serde::Deserialize, serde::Serialize)]
-pub struct Post {
-    /// The title
-    pub title: String,
-
-    /// The privacy of this post.
-    pub privacy: PostPrivacy,
-
-    /// Whether this post is nsfw.
-    pub nsfw: bool,
-
-    /// The post files
-    pub files: Vec<PostFile>,
-}
-
-/// The post privacy.
-#[derive(Debug, Copy, Clone, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
-pub enum PostPrivacy {
-    #[serde(rename = "public")]
-    Public,
-    #[serde(rename = "hidden")]
-    Hidden,
-    #[serde(rename = "secret")]
-    Secret,
-}
-
-/// A post image
-#[derive(Debug, serde::Deserialize, serde::Serialize)]
-pub struct PostFile {
-    /// The post file description.
-    pub description: String,
-
-    /// The sha256 file hash, as a hex string.
-    pub sha256: String,
-
-    /// The post path.
-    ///
-    /// This may not exist in certain cases,
-    /// like loading a cache from the disk.
-    ///
-    /// This should not be used when diffing.
-    pub path: Option<Utf8PathBuf>,
-
-    /// The post id
-    ///
-    /// This may not exist in certain cases,
-    /// like creating a post from a config file.
-    ///
-    /// This should not be used when diffing.
-    pub id: Option<String>,
-}
-
-/// A diff for a post.
-#[derive(Debug)]
-pub enum PostDiff {
-    EditTitle {
-        /// The new title
-        title: String,
-    },
-    EditPrivacy {
-        /// The new privacy setting
-        privacy: PostPrivacy,
-    },
-    EditNsfw {
-        /// The new nsfw setting
-        nsfw: bool,
-    },
-    AddFile {
-        /// The index of the new post.
-        index: usize,
-
-        /// The sha256 file hash, as a hex string.
-        sha256: String,
-    },
-    RemoveFile {
-        /// The index of the file to remove
-        index: usize,
-    },
-}
 
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
 pub struct Cache {
@@ -190,44 +113,10 @@ async fn async_main(options: Options) -> anyhow::Result<()> {
 
                 let diffs = generate_post_diffs(old_post, &new_post)
                     .context("failed to generate post diffs")?;
-                let mut update_post_builder = imgchest::UpdatePostBuilder::new();
-                let mut files_to_remove = Vec::new();
-                for diff in diffs {
-                    match diff {
-                        PostDiff::EditTitle { title } => {
-                            update_post_builder.title(title);
-                        }
-                        PostDiff::EditPrivacy { privacy } => {
-                            update_post_builder.privacy(match privacy {
-                                PostPrivacy::Public => imgchest::PostPrivacy::Public,
-                                PostPrivacy::Hidden => imgchest::PostPrivacy::Hidden,
-                                PostPrivacy::Secret => imgchest::PostPrivacy::Secret,
-                            });
-                        }
-                        PostDiff::EditNsfw { nsfw } => {
-                            update_post_builder.nsfw(nsfw);
-                        }
-                        PostDiff::AddFile { index, sha256 } => {
-                            todo!("add file {sha256} at {index}");
-                        }
-                        PostDiff::RemoveFile { index } => {
-                            let id = old_post.files[index]
-                                .id
-                                .as_ref()
-                                .context("missing id of file to remove")?;
-                            files_to_remove.push(id);
-                        }
-                    }
+                if !diffs.is_empty() {
+                    update_online_post(&client, id, diffs, old_post, &mut new_post, &cache_path)
+                        .await?;
                 }
-
-                client.update_post(id, update_post_builder).await?;
-                for id in files_to_remove.iter() {
-                    client.delete_file(id).await?;
-                }
-
-                todo!("inject file ids into new_post");
-                // New files should have their ids updated on creation.
-                // Old files should copy their ids from the old post.
             }
             None => {
                 let mut builder = imgchest::CreatePostBuilder::new();
@@ -398,7 +287,78 @@ async fn create_post_from_online(client: &imgchest::Client, id: &str) -> anyhow:
     })
 }
 
+async fn update_online_post(
+    client: &imgchest::Client,
+    id: &str,
+    diffs: Vec<PostDiff>,
+    old_post: &Post,
+    new_post: &mut Post,
+    cache_path: &Utf8Path,
+) -> anyhow::Result<()> {
+    let mut update_post_builder = imgchest::UpdatePostBuilder::new();
+    let mut files_to_remove = Vec::new();
+    let mut files_to_add_indicies = Vec::new();
+    let mut files_to_add = Vec::new();
+    for diff in diffs {
+        match diff {
+            PostDiff::EditTitle { title } => {
+                update_post_builder.title(title);
+            }
+            PostDiff::EditPrivacy { privacy } => {
+                update_post_builder.privacy(match privacy {
+                    PostPrivacy::Public => imgchest::PostPrivacy::Public,
+                    PostPrivacy::Hidden => imgchest::PostPrivacy::Hidden,
+                    PostPrivacy::Secret => imgchest::PostPrivacy::Secret,
+                });
+            }
+            PostDiff::EditNsfw { nsfw } => {
+                update_post_builder.nsfw(nsfw);
+            }
+            PostDiff::RetainFile { index } => {
+                new_post.files[index].id = old_post.files[index].id.clone();
+            }
+            PostDiff::AddFile { index } => {
+                let path = new_post.files[index]
+                    .path
+                    .as_ref()
+                    .context("missing path")?;
+                let file = imgchest::UploadPostFile::from_path(path).await?;
+                files_to_add.push(file);
+                files_to_add_indicies.push(index);
+            }
+            PostDiff::RemoveFile { index } => {
+                let id = old_post.files[index]
+                    .id
+                    .as_ref()
+                    .context("missing id of file to remove")?;
+                files_to_remove.push(id);
+            }
+        }
+    }
+
+    // Nuke the cache.
+    // We cannot perform the diff atomically.
+    // If the update is interrupted, the cache will reflect bad data.
+    tokio::fs::remove_file(&cache_path).await?;
+
+    client.update_post(id, update_post_builder).await?;
+    for id in files_to_remove.iter() {
+        client.delete_file(id).await?;
+    }
+
+    if !files_to_add.is_empty() {
+        let imgchest_post = client.add_post_images(id, files_to_add).await?;
+        for index in files_to_add_indicies {
+            new_post.files[index].id = Some(imgchest_post.images[index].id.clone().into());
+        }
+    }
+
+    Ok(())
+}
 fn generate_post_diffs(old: &Post, new: &Post) -> anyhow::Result<Vec<PostDiff>> {
+    ensure!(!old.files.is_empty(), "old post has no files");
+    ensure!(!new.files.is_empty(), "new post has no files");
+
     let mut diffs = Vec::new();
     if old.title != new.title {
         diffs.push(PostDiff::EditTitle {
@@ -414,84 +374,155 @@ fn generate_post_diffs(old: &Post, new: &Post) -> anyhow::Result<Vec<PostDiff>> 
         diffs.push(PostDiff::EditNsfw { nsfw: new.nsfw });
     }
 
-    let old_files = &old.files;
-    let new_files = &new.files;
-    let old_files_len = old_files.len();
-    let new_files_len = new_files.len();
-    ensure!(
-        old_files_len < u16::MAX.into(),
-        "too many files in old post"
-    );
-    ensure!(
-        new_files_len < u16::MAX.into(),
-        "too many files in new post"
-    );
+    // Ideally, we would diff and only upload what is changed.
+    // However, the imgchest api is horriblly handicapped:
+    // 1. We cannot reorder files without deleting and recreating them.
+    // 2. We can only change a file description, not remove it.
+    // 3. We cannot insert files at arbitrary indicies.
+    //
+    // While diffing would give us an advantage in some cases,
+    // most of the time we would just throw out our calculations
+    // or be forced to use some heurisitics to convert our diffs into
+    // something the API can use.
+    //
+    // As a result, we will use a simpler, faster algorithm.
+    // We will skip all initial files that are not changed and have the same description.
+    // When we reach an index where there is a mismatch, delete everything past it.
+    // Then, add the files from the new post.
 
-    let mut lcs: Vec<Vec<u16>> = vec![vec![0; new_files_len + 1]; old_files_len + 1];
-    for i in 1..(old_files_len + 1) {
-        for j in 1..(new_files_len + 1) {
-            if old_files[i - 1].sha256 == new_files[j - 1].sha256 {
-                lcs[i][j] = lcs[i - 1][j - 1] + 1;
-            } else {
-                lcs[i][j] = std::cmp::max(lcs[i - 1][j], lcs[i][j - 1]);
-            }
-        }
-    }
-
-    let mut sequence = VecDeque::new();
-    let mut i = old_files_len;
-    let mut j = new_files_len;
-    loop {
-        if i == 0 || j == 0 {
+    let mut prefix_index = 0;
+    while let (Some(old_file), Some(new_file)) =
+        (old.files.get(prefix_index), new.files.get(prefix_index))
+    {
+        // TODO: Account for description.
+        if old_file.sha256 != new_file.sha256 {
             break;
-        } else if old_files[i - 1].sha256 == new_files[j - 1].sha256 {
-            sequence.push_back(i - 1);
-
-            i -= 1;
-            j -= 1;
-        } else if lcs[i][j - 1] > lcs[i - 1][j] {
-            j -= 1;
-        } else {
-            i -= 1;
         }
+
+        diffs.push(PostDiff::RetainFile {
+            index: prefix_index,
+        });
+
+        prefix_index += 1;
     }
 
-    let mut i = 0;
-    let mut j = 0;
-    loop {
-        let old_file = old_files.get(i);
-        let new_file = new_files.get(j);
-
-        let old_file = match old_file {
-            Some(old_file) => old_file,
-            None => {
-                for index in j..new_files_len {
-                    diffs.push(PostDiff::AddFile {
-                        index,
-                        sha256: new_files[j].sha256.clone(),
-                    });
-                }
-                break;
-            }
-        };
-
-        let new_file = match new_file {
-            Some(new_file) => new_file,
-            None => {
-                for index in i..old_files_len {
-                    diffs.push(PostDiff::RemoveFile { index });
-                }
-                break;
-            }
-        };
-
-        if old_file.sha256 == new_file.sha256 {
-            i += 1;
-            j += 1;
-        } else {
-            todo!("wip");
-        }
+    for index in prefix_index..old.files.len() {
+        diffs.push(PostDiff::RemoveFile { index });
     }
+
+    for index in prefix_index..new.files.len() {
+        // Since we removed all the posts with the earlier diff,
+        // The current old post object is a prefix of the new post object.
+        // Therefore, the indicies of the new post work with the old one.
+        diffs.push(PostDiff::AddFile { index });
+    }
+
+    // TODO: Emit description diffs
 
     anyhow::Ok(diffs)
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    const SHA256_A: &str = "a";
+    const SHA256_B: &str = "b";
+
+    #[test]
+    fn generate_post_diffs_works() {
+        let old_post = Post {
+            title: String::from("title"),
+            privacy: PostPrivacy::Hidden,
+            nsfw: false,
+            files: vec![PostFile {
+                description: String::new(),
+                sha256: SHA256_B.into(),
+                id: None,
+                path: None,
+            }],
+        };
+        let new_post = Post {
+            title: String::from("title"),
+            privacy: PostPrivacy::Hidden,
+            nsfw: false,
+            files: vec![PostFile {
+                description: String::new(),
+                sha256: SHA256_A.into(),
+                id: None,
+                path: None,
+            }],
+        };
+
+        let actual_diffs =
+            generate_post_diffs(&old_post, &new_post).expect("failed to generate diffs");
+        let expected_diffs = vec![
+            PostDiff::RemoveFile { index: 0 },
+            PostDiff::AddFile { index: 0 },
+        ];
+        assert!(actual_diffs == expected_diffs);
+
+        let old_post = Post {
+            title: String::from("title"),
+            privacy: PostPrivacy::Hidden,
+            nsfw: false,
+            files: vec![
+                PostFile {
+                    description: String::new(),
+                    sha256: SHA256_A.into(),
+                    id: None,
+                    path: None,
+                },
+                PostFile {
+                    description: String::new(),
+                    sha256: SHA256_A.into(),
+                    id: None,
+                    path: None,
+                },
+            ],
+        };
+        let new_post = Post {
+            title: String::from("title"),
+            privacy: PostPrivacy::Hidden,
+            nsfw: false,
+            files: vec![PostFile {
+                description: String::new(),
+                sha256: SHA256_A.into(),
+                id: None,
+                path: None,
+            }],
+        };
+
+        let actual_diffs =
+            generate_post_diffs(&old_post, &new_post).expect("failed to generate diffs");
+        let expected_diffs = vec![PostDiff::RemoveFile { index: 1 }];
+        assert!(actual_diffs == expected_diffs);
+
+        let old_post = Post {
+            title: String::from("title"),
+            privacy: PostPrivacy::Hidden,
+            nsfw: false,
+            files: vec![PostFile {
+                description: String::new(),
+                sha256: SHA256_A.into(),
+                id: None,
+                path: None,
+            }],
+        };
+        let new_post = Post {
+            title: String::from("title"),
+            privacy: PostPrivacy::Hidden,
+            nsfw: false,
+            files: vec![PostFile {
+                description: String::new(),
+                sha256: SHA256_A.into(),
+                id: None,
+                path: None,
+            }],
+        };
+        let actual_diffs =
+            generate_post_diffs(&old_post, &new_post).expect("failed to generate diffs");
+        let expected_diffs = vec![];
+        assert!(actual_diffs == expected_diffs);
+    }
 }
