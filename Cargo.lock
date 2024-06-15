@@ -769,7 +769,7 @@ dependencies = [
 [[package]]
 name = "imgchest"
 version = "0.0.0"
-source = "git+https://github.com/nathaniel-daniel/imgchest-rs#8a931dd3881258c7fba02df9631c0e5b3d69c69f"
+source = "git+https://github.com/nathaniel-daniel/imgchest-rs#1e2254f3da8d3532dc64276784a1e7de34781ca3"
 dependencies = [
  "once_cell",
  "reqwest",
@@ -1260,9 +1260,9 @@ dependencies = [
 
 [[package]]
 name = "redox_syscall"
-version = "0.5.1"
+version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "469052894dcb553421e483e4209ee581a45100d31b4018de03e5a7ad86374a7e"
+checksum = "c82cf8cff14456045f55ec4241383baeff27af886adb72ffb2162f99911de0fd"
 dependencies = [
  "bitflags",
 ]

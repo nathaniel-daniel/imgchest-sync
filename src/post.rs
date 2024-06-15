@@ -19,12 +19,15 @@ pub struct Post {
 /// The post privacy.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 pub enum PostPrivacy {
+    /// The post is public
     #[serde(rename = "public")]
     Public,
 
+    /// The post is hidden
     #[serde(rename = "hidden")]
     Hidden,
 
+    /// The post is secret
     #[serde(rename = "secret")]
     Secret,
 }
@@ -59,15 +62,15 @@ pub struct PostFile {
 #[derive(Debug, PartialEq)]
 pub enum PostDiff {
     EditTitle {
-        /// The new title
+        /// The new title.
         title: String,
     },
     EditPrivacy {
-        /// The new privacy setting
+        /// The new privacy setting.
         privacy: PostPrivacy,
     },
     EditNsfw {
-        /// The new nsfw setting
+        /// The new nsfw setting.
         nsfw: bool,
     },
     RetainFile {
@@ -79,7 +82,7 @@ pub enum PostDiff {
         index: usize,
     },
     RemoveFile {
-        /// The index of the file to remove
+        /// The index of the file to remove.
         index: usize,
     },
 }

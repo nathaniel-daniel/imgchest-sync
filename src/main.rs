@@ -4,6 +4,7 @@ mod util;
 
 use crate::config::Config;
 use crate::config::PostConfig;
+use crate::config::PostConfigPrivacy;
 use crate::post::Post;
 use crate::post::PostDiff;
 use crate::post::PostFile;
@@ -39,6 +40,20 @@ pub struct Options {
         description = "the directory to sync posts from"
     )]
     pub input: Utf8PathBuf,
+
+    #[argh(
+        switch,
+        long = "no-read-cache",
+        description = "avoid reading the cache"
+    )]
+    pub no_read_cache: bool,
+
+    #[argh(
+        switch,
+        long = "print-diffs",
+        description = "whether the generated post diffs should be printed"
+    )]
+    pub print_diffs: bool,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -77,21 +92,25 @@ async fn async_main(options: Options) -> anyhow::Result<()> {
             None => continue,
         };
 
-        let mut cache = match crate::util::try_read_to_string(&cache_path)
-            .await
-            .context("failed to read cache file")?
-        {
-            Some(cache_raw) => {
-                match toml::from_str::<Cache>(&cache_raw).context("failed to parse cache file") {
-                    Ok(cache) => Some(cache),
-                    Err(error) => {
-                        eprintln!("{error:?}");
-                        None
+        let mut cache = None;
+        if !options.no_read_cache {
+            cache = match crate::util::try_read_to_string(&cache_path)
+                .await
+                .context("failed to read cache file")?
+            {
+                Some(cache_raw) => {
+                    match toml::from_str::<Cache>(&cache_raw).context("failed to parse cache file")
+                    {
+                        Ok(cache) => Some(cache),
+                        Err(error) => {
+                            eprintln!("{error:?}");
+                            None
+                        }
                     }
                 }
-            }
-            None => None,
-        };
+                None => None,
+            };
+        }
 
         let mut post_config = config.post_mut();
 
@@ -113,7 +132,15 @@ async fn async_main(options: Options) -> anyhow::Result<()> {
 
                 let diffs = generate_post_diffs(old_post, &new_post)
                     .context("failed to generate post diffs")?;
-                if !diffs.is_empty() {
+                let diff_empty = diffs
+                    .iter()
+                    .all(|diff| matches!(diff, PostDiff::RetainFile { .. }));
+
+                if options.print_diffs {
+                    println!("Diffs: {diffs:#?}");
+                }
+
+                if !diff_empty {
                     update_online_post(&client, id, diffs, old_post, &mut new_post, &cache_path)
                         .await?;
                 }
@@ -186,8 +213,11 @@ async fn create_post_from_post_config(
     let dir_name = dir_path.file_name().context("missing dir name")?;
 
     let title = post_config.title().unwrap_or(dir_name).into();
-    // TODO: Create and map config model.
-    let privacy = PostPrivacy::Hidden;
+    let privacy = match post_config.privacy().unwrap_or(PostConfigPrivacy::Hidden) {
+        PostConfigPrivacy::Public => PostPrivacy::Public,
+        PostConfigPrivacy::Hidden => PostPrivacy::Hidden,
+        PostConfigPrivacy::Secret => PostPrivacy::Secret,
+    };
     let nsfw = post_config.nsfw().unwrap_or(false);
     let files = {
         let files_config = post_config.files();
@@ -295,24 +325,30 @@ async fn update_online_post(
     new_post: &mut Post,
     cache_path: &Utf8Path,
 ) -> anyhow::Result<()> {
-    let mut update_post_builder = imgchest::UpdatePostBuilder::new();
+    let mut update_post_builder = None;
     let mut files_to_remove = Vec::new();
     let mut files_to_add_indicies = Vec::new();
     let mut files_to_add = Vec::new();
     for diff in diffs {
         match diff {
             PostDiff::EditTitle { title } => {
-                update_post_builder.title(title);
+                update_post_builder
+                    .get_or_insert_with(imgchest::UpdatePostBuilder::new)
+                    .title(title);
             }
             PostDiff::EditPrivacy { privacy } => {
-                update_post_builder.privacy(match privacy {
-                    PostPrivacy::Public => imgchest::PostPrivacy::Public,
-                    PostPrivacy::Hidden => imgchest::PostPrivacy::Hidden,
-                    PostPrivacy::Secret => imgchest::PostPrivacy::Secret,
-                });
+                update_post_builder
+                    .get_or_insert_with(imgchest::UpdatePostBuilder::new)
+                    .privacy(match privacy {
+                        PostPrivacy::Public => imgchest::PostPrivacy::Public,
+                        PostPrivacy::Hidden => imgchest::PostPrivacy::Hidden,
+                        PostPrivacy::Secret => imgchest::PostPrivacy::Secret,
+                    });
             }
             PostDiff::EditNsfw { nsfw } => {
-                update_post_builder.nsfw(nsfw);
+                update_post_builder
+                    .get_or_insert_with(imgchest::UpdatePostBuilder::new)
+                    .nsfw(nsfw);
             }
             PostDiff::RetainFile { index } => {
                 new_post.files[index].id = old_post.files[index].id.clone();
@@ -341,7 +377,10 @@ async fn update_online_post(
     // If the update is interrupted, the cache will reflect bad data.
     tokio::fs::remove_file(&cache_path).await?;
 
-    client.update_post(id, update_post_builder).await?;
+    if let Some(update_post_builder) = update_post_builder {
+        client.update_post(id, update_post_builder).await?;
+    }
+
     for id in files_to_remove.iter() {
         client.delete_file(id).await?;
     }
@@ -355,6 +394,7 @@ async fn update_online_post(
 
     Ok(())
 }
+
 fn generate_post_diffs(old: &Post, new: &Post) -> anyhow::Result<Vec<PostDiff>> {
     ensure!(!old.files.is_empty(), "old post has no files");
     ensure!(!new.files.is_empty(), "new post has no files");
@@ -495,7 +535,10 @@ mod test {
 
         let actual_diffs =
             generate_post_diffs(&old_post, &new_post).expect("failed to generate diffs");
-        let expected_diffs = vec![PostDiff::RemoveFile { index: 1 }];
+        let expected_diffs = vec![
+            PostDiff::RetainFile { index: 0 },
+            PostDiff::RemoveFile { index: 1 },
+        ];
         assert!(actual_diffs == expected_diffs);
 
         let old_post = Post {
@@ -522,7 +565,7 @@ mod test {
         };
         let actual_diffs =
             generate_post_diffs(&old_post, &new_post).expect("failed to generate diffs");
-        let expected_diffs = vec![];
+        let expected_diffs = vec![PostDiff::RetainFile { index: 0 }];
         assert!(actual_diffs == expected_diffs);
     }
 }

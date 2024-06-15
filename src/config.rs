@@ -53,18 +53,36 @@ impl Config {
             .context("missing \"post\" table")?
             .as_table_like()
             .context("\"post\" key does not refer to a table")?;
-        let _id = post_table.get("id").map(|item| {
-            item.as_str()
-                .expect("\"id\" field of post config is not a string")
-        });
-        let _title = post_table.get("title").map(|item| {
-            item.as_str()
-                .expect("\"title\" field of post config is not a string")
-        });
-        let _nsfw = post_table.get("nsfw").map(|item| {
-            item.as_bool()
-                .expect("\"nsfw\" field of post config is not a bool")
-        });
+        let _id = post_table
+            .get("id")
+            .map(|item| {
+                item.as_str()
+                    .context("\"id\" field of post config is not a string")
+            })
+            .transpose()?;
+        let _title = post_table
+            .get("title")
+            .map(|item| {
+                item.as_str()
+                    .context("\"title\" field of post config is not a string")
+            })
+            .transpose()?;
+        let _privacy = post_table
+            .get("privacy")
+            .map(|item| {
+                item.as_str()
+                    .context("\"privacy\" field of post config is not a string")?
+                    .parse::<PostConfigPrivacy>()
+                    .context("failed to parse post privacy")
+            })
+            .transpose()?;
+        let _nsfw = post_table
+            .get("nsfw")
+            .map(|item| {
+                item.as_bool()
+                    .context("\"nsfw\" field of post config is not a bool")
+            })
+            .transpose()?;
         let files = {
             let item = post_table
                 .get("files")
@@ -157,6 +175,16 @@ impl<'a> PostConfig<'a> {
         })
     }
 
+    /// Get the privacy.
+    pub fn privacy(&self) -> Option<PostConfigPrivacy> {
+        self.table.get("privacy").map(|item| {
+            item.as_str()
+                .expect("\"privacy\" field of post config is not a string")
+                .parse::<PostConfigPrivacy>()
+                .expect("failed to parse post privacy")
+        })
+    }
+
     /// Get the nsfw.
     pub fn nsfw(&self) -> Option<bool> {
         self.table.get("nsfw").map(|item| {
@@ -222,5 +250,26 @@ impl<'a> PostConfigFile<'a> {
             .expect("missing path")
             .as_str()
             .expect("path is not a str")
+    }
+}
+
+/// Post privacy
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum PostConfigPrivacy {
+    Public,
+    Hidden,
+    Secret,
+}
+
+impl std::str::FromStr for PostConfigPrivacy {
+    type Err = anyhow::Error;
+
+    fn from_str(input: &str) -> Result<Self, Self::Err> {
+        match input {
+            "public" => Ok(Self::Public),
+            "hidden" => Ok(Self::Hidden),
+            "secret" => Ok(Self::Secret),
+            _ => bail!("\"{input}\" is not a valid post privacy type"),
+        }
     }
 }
