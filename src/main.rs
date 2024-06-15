@@ -220,11 +220,9 @@ async fn async_main(options: Options) -> anyhow::Result<()> {
                     file.id = Some(imgchest_image.id.into());
                 }
 
-                let tmp_config_path = nd_util::with_push_extension(&config_path, "temp");
-                tokio::fs::write(&tmp_config_path, config.to_string())
+                crate::util::write_string_safe(config_path, &config.to_string())
                     .await
                     .context("failed to write new config")?;
-                tokio::fs::rename(tmp_config_path, config_path).await?;
             }
         }
 
@@ -242,11 +240,9 @@ async fn async_main(options: Options) -> anyhow::Result<()> {
         cache_str.push('\n');
         cache_str += &toml::to_string(&cache)?;
 
-        let tmp_cache_path = nd_util::with_push_extension(&cache_path, "temp");
-        tokio::fs::write(&tmp_cache_path, cache_str)
+        crate::util::write_string_safe(cache_path, &cache_str)
             .await
             .context("failed to write new cache")?;
-        tokio::fs::rename(tmp_cache_path, cache_path).await?;
     }
 
     Ok(())
