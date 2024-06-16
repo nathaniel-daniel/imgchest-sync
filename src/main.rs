@@ -269,39 +269,40 @@ async fn create_post_from_post_config(
     let nsfw = post_config.nsfw().unwrap_or(false);
     let files = {
         let files_config = post_config.files();
-        let mut files = Vec::with_capacity(files_config.len());
+
+        let mut futures = Vec::with_capacity(files_config.len());
         for file in files_config.iter() {
-            let description = file.description().unwrap_or("").into();
+            let (tx, rx) = tokio::sync::oneshot::channel();
+
+            let description: String = file.description().unwrap_or("").into();
 
             let path = Utf8Path::new(file.path());
-            let path = if path.is_relative() {
+            let path: Utf8PathBuf = if path.is_relative() {
                 dir_path.join(path)
             } else {
                 path.into()
             };
 
-            let sha256 = {
-                let path = path.clone();
-                tokio::task::spawn_blocking(move || {
-                    let mut file = std::fs::File::open(&path)
-                        .with_context(|| format!("failed to open \"{path}\""))?;
+            rayon::spawn(move || {
+                let sha256_result = hash_file_at_path(&path)
+                    .with_context(|| format!("failed to hash file at \"{path}\""));
+                let result = sha256_result.map(|sha256| PostFile {
+                    description,
+                    sha256,
+                    path: Some(path),
+                    id: None,
+                });
 
-                    let mut hasher = Sha256::new();
-                    std::io::copy(&mut file, &mut hasher)?;
-                    let hash = hasher.finalize();
-                    let hex_hash = base16ct::lower::encode_string(&hash);
-
-                    anyhow::Ok(hex_hash)
-                })
-                .await??
-            };
-
-            files.push(PostFile {
-                description,
-                sha256,
-                path: Some(path),
-                id: None,
+                let _ = tx.send(result).is_ok();
             });
+
+            futures.push(rx);
+        }
+
+        let mut files = Vec::with_capacity(files_config.len());
+        for future in futures {
+            let file = future.await??;
+            files.push(file);
         }
         files
     };
@@ -312,6 +313,18 @@ async fn create_post_from_post_config(
         nsfw,
         files,
     })
+}
+
+fn hash_file_at_path(path: &Utf8Path) -> anyhow::Result<String> {
+    let mut file =
+        std::fs::File::open(path).with_context(|| format!("failed to open \"{path}\""))?;
+
+    let mut hasher = Sha256::new();
+    std::io::copy(&mut file, &mut hasher)?;
+    let hash = hasher.finalize();
+    let hex_hash = base16ct::lower::encode_string(&hash);
+
+    anyhow::Ok(hex_hash)
 }
 
 async fn create_post_from_online(client: &imgchest::Client, id: &str) -> anyhow::Result<Post> {
