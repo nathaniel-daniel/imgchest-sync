@@ -1,3 +1,4 @@
+mod commands;
 mod config;
 mod post;
 mod util;
@@ -5,6 +6,7 @@ mod util;
 use crate::config::Config;
 use crate::config::PostConfig;
 use crate::config::PostConfigPrivacy;
+use crate::config::UserConfig;
 use crate::post::Post;
 use crate::post::PostDiff;
 use crate::post::PostFile;
@@ -13,6 +15,7 @@ use anyhow::ensure;
 use anyhow::Context;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
+use directories::ProjectDirs;
 use regex::Regex;
 use sha2::Digest;
 use sha2::Sha256;
@@ -32,7 +35,7 @@ pub struct Options {
         short = 't',
         description = "the API token to use"
     )]
-    pub token: String,
+    pub token: Option<String>,
 
     #[argh(
         option,
@@ -40,7 +43,7 @@ pub struct Options {
         short = 'i',
         description = "the directory to sync posts from"
     )]
-    pub input: Utf8PathBuf,
+    pub input: Option<Utf8PathBuf>,
 
     #[argh(
         switch,
@@ -62,6 +65,15 @@ pub struct Options {
         description = "only process directory entry names accepted by the provided regex"
     )]
     pub filter_regex: Option<String>,
+
+    #[argh(subcommand)]
+    subcommand: Option<Subcommand>,
+}
+
+#[derive(Debug, argh::FromArgs)]
+#[argh(subcommand)]
+enum Subcommand {
+    Config(self::commands::config::Options),
 }
 
 fn main() -> anyhow::Result<()> {
@@ -75,9 +87,47 @@ fn main() -> anyhow::Result<()> {
 }
 
 async fn async_main(options: Options) -> anyhow::Result<()> {
-    let client = imgchest::Client::new();
-    client.set_token(options.token);
+    let project_dirs =
+        ProjectDirs::from("", "", "imgchest-sync").context("failed to get config directory")?;
+    let config_dir = project_dirs.config_dir();
+    tokio::fs::create_dir_all(&config_dir)
+        .await
+        .context("failed to create config directory")?;
+    let config_path = config_dir.join("config.toml");
+    let config = {
+        let config_str = crate::util::try_read_to_string(&config_path)
+            .await?
+            .unwrap_or(String::new());
+        UserConfig::new(&config_str).context("failed to parse user config")?
+    };
 
+    match options.subcommand {
+        Some(Subcommand::Config(options)) => {
+            self::commands::config::exec(options, &config_path, config).await?;
+        }
+        None => {
+            let client = imgchest::Client::new();
+            let token = options
+                .token
+                .as_deref()
+                .or_else(|| config.token())
+                .context(
+                "missing API token. Specify it either with the --token flag or in the user config.",
+            )?;
+            client.set_token(token);
+
+            exec(options, client).await?
+        }
+    }
+
+    Ok(())
+}
+
+async fn exec(options: Options, client: imgchest::Client) -> anyhow::Result<()> {
+    let input = options
+        .input
+        .as_ref()
+        .context("missing input directory. Specify it with --input")?;
     let filter_regex = options
         .filter_regex
         .map(|filter_regex| {
@@ -85,7 +135,7 @@ async fn async_main(options: Options) -> anyhow::Result<()> {
         })
         .transpose()?;
 
-    let mut dir_iter = tokio::fs::read_dir(&options.input).await?;
+    let mut dir_iter = tokio::fs::read_dir(input).await?;
     while let Some(entry) = dir_iter.next_entry().await? {
         let file_type = entry.file_type().await?;
         let entry_path = entry.path();
@@ -102,7 +152,7 @@ async fn async_main(options: Options) -> anyhow::Result<()> {
             }
         }
 
-        let dir_path = options.input.join(entry_path);
+        let dir_path = input.join(entry_path);
         let config_path = dir_path.join("imgchest-sync.toml");
         let cache_path = dir_path.join(".imgchest-sync-cache.toml");
 

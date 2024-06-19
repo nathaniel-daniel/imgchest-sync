@@ -299,3 +299,50 @@ impl std::str::FromStr for PostConfigPrivacy {
         }
     }
 }
+
+/// Config for a user.
+#[derive(Debug)]
+pub struct UserConfig {
+    document: DocumentMut,
+}
+
+impl UserConfig {
+    /// Make a config from a string.
+    pub fn new(input: &str) -> anyhow::Result<Self> {
+        let document: DocumentMut = input.parse()?;
+        let _token = document
+            .get("token")
+            .map(|item| {
+                item.as_str()
+                    .context("\"token\" field of user config is not a string")
+            })
+            .transpose()?;
+
+        Ok(Self { document })
+    }
+
+    /// Get the token, if it exists.
+    pub fn token(&self) -> Option<&str> {
+        self.document.get("token").map(|item| {
+            item.as_str()
+                .expect("\"token\" field of user config is not a string")
+        })
+    }
+
+    /// Set the token.
+    ///
+    /// If the empty string is passed, the token key is deleted.
+    pub fn set_token(&mut self, new_token: &str) {
+        if new_token.is_empty() {
+            self.document.remove("token");
+        }
+
+        self.document.insert("token", toml_edit::value(new_token));
+    }
+}
+
+impl std::fmt::Display for UserConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.document.fmt(f)
+    }
+}
