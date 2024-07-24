@@ -55,6 +55,16 @@ description = "<description>"
 path = "<path to file>"
 ```
 
+### User Config
+This program supports loading an access token from a config file so you don't have to specify it each time.
+Run `imgchest-sync config --edit` to open the file in your editor.
+Alternatively, run `imgchest-sync config -k token -v <your api token>` to set it from the terminal.
+
+This file has the following format:
+```toml
+token = "<your api token>"
+```
+
 ## License
 Licensed under either of
  * Apache License, Version 2.0 (LICENSE-APACHE or http://www.apache.org/licenses/LICENSE-2.0)
