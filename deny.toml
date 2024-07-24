@@ -35,11 +35,11 @@ skip = [
     { name = "windows_x86_64_gnu", version = "0.48.5" },
     { name = "windows-targets", version = "0.48.5" },
     { name = "windows-sys", version = "0.48.0" },
-    { name = "syn", version = "1.0.109" },
     { name = "phf_shared", version = "0.10.0" },
     { name = "phf_generator", version = "0.10.0" },
     { name = "phf", version = "0.10.1" },
     { name = "idna", version = "0.3.0" },
+    { name = "phf_codegen", version = "0.10.0" },
 ]
 
 [sources]
