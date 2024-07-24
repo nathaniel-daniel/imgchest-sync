@@ -263,6 +263,16 @@ async fn exec(options: Options, client: imgchest::Client) -> anyhow::Result<()> 
                     .await
                     .context("failed to create new post")?;
 
+                // Set descriptions
+                client
+                    .update_files_bulk(new_post.files.iter().zip(imgchest_post.images.iter()).map(
+                        |(file, new_file)| imgchest::FileUpdate {
+                            id: new_file.id.to_string(),
+                            description: file.description.clone(),
+                        },
+                    ))
+                    .await?;
+
                 post_config.set_id(Some(&*imgchest_post.id));
 
                 ensure!(imgchest_post.images.len() == new_post.files.len());
