@@ -271,7 +271,7 @@ async fn exec(options: Options, client: imgchest::Client) -> anyhow::Result<()> 
                             .files
                             .iter()
                             .zip(imgchest_post.images.iter())
-                            .filter(|(file, _new_file)| file.description.is_empty())
+                            .filter(|(file, _new_file)| !file.description.is_empty())
                             .map(|(file, new_file)| imgchest::FileUpdate {
                                 id: new_file.id.to_string(),
                                 description: file.description.clone(),
