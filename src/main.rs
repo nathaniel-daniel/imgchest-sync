@@ -265,20 +265,22 @@ async fn exec(options: Options, client: imgchest::Client) -> anyhow::Result<()> 
 
                 // Set descriptions
                 ensure!(new_post.files.len() == imgchest_post.images.len());
-                client
-                    .update_files_bulk(
-                        new_post
-                            .files
-                            .iter()
-                            .zip(imgchest_post.images.iter())
-                            .filter(|(file, _new_file)| !file.description.is_empty())
-                            .map(|(file, new_file)| imgchest::FileUpdate {
-                                id: new_file.id.to_string(),
-                                description: file.description.clone(),
-                            }),
-                    )
-                    .await
-                    .context("failed to set file descriptions")?;
+                let description_updates: Vec<_> = new_post
+                    .files
+                    .iter()
+                    .zip(imgchest_post.images.iter())
+                    .filter(|(file, _new_file)| !file.description.is_empty())
+                    .map(|(file, new_file)| imgchest::FileUpdate {
+                        id: new_file.id.to_string(),
+                        description: file.description.clone(),
+                    })
+                    .collect();
+                if !description_updates.is_empty() {
+                    client
+                        .update_files_bulk(description_updates)
+                        .await
+                        .context("failed to set file descriptions")?;
+                }
 
                 post_config.set_id(Some(&*imgchest_post.id));
 
