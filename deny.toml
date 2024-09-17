@@ -40,6 +40,7 @@ skip = [
     { name = "phf", version = "0.10.1" },
     { name = "idna", version = "0.3.0" },
     { name = "phf_codegen", version = "0.10.0" },
+    { name = "windows-sys", version = "0.52.0" },
 ]
 
 [sources]
@@ -50,5 +51,5 @@ allow-git = []
 
 [sources.allow-org]
 github = [
-    "nathaniel-daniel"
+    "nathaniel-daniel",
 ]
