@@ -157,7 +157,7 @@ pub struct PostConfig<'a> {
     table: &'a mut dyn TableLike,
 }
 
-impl<'a> PostConfig<'a> {
+impl PostConfig<'_> {
     /// Get the id
     pub fn id(&self) -> Option<&str> {
         self.table.get("id").map(|item| {
@@ -244,7 +244,7 @@ pub struct PostConfigFilesArray<'a> {
     array: ArrayOfTablesLike<'a>,
 }
 
-impl<'a> PostConfigFilesArray<'a> {
+impl PostConfigFilesArray<'_> {
     /// Iter over files.
     pub fn iter(&self) -> impl Iterator<Item = PostConfigFile> {
         self.array.iter().map(|table| PostConfigFile { table })
@@ -261,7 +261,7 @@ pub struct PostConfigFile<'a> {
     table: &'a dyn TableLike,
 }
 
-impl<'a> PostConfigFile<'a> {
+impl PostConfigFile<'_> {
     /// The file path.
     pub fn path(&self) -> &str {
         self.table

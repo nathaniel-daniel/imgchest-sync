@@ -12,7 +12,7 @@ ignore = []
 [licenses]
 confidence-threshold = 0.93
 private = { ignore = true }
-allow = [ "Apache-2.0", "MIT", "Unicode-DFS-2016", "BSD-3-Clause", "ISC", "MPL-2.0", "OpenSSL" ]
+allow = [ "Apache-2.0", "MIT", "Unicode-DFS-2016", "BSD-3-Clause", "ISC", "MPL-2.0", "OpenSSL", "Unicode-3.0" ]
 exceptions = []
 
 [[licenses.clarify]]
@@ -37,9 +37,6 @@ skip = [
     { name = "windows-sys", version = "0.48.0" },
     { name = "phf_shared", version = "0.10.0" },
     { name = "phf_generator", version = "0.10.0" },
-    { name = "phf", version = "0.10.1" },
-    { name = "idna", version = "0.3.0" },
-    { name = "phf_codegen", version = "0.10.0" },
     { name = "windows-sys", version = "0.52.0" },
 ]
 
