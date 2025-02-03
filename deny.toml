@@ -31,12 +31,6 @@ license-files = [
 multiple-versions = "warn"
 highlight = "all"
 skip = [
-    { name = "windows_x86_64_msvc", version = "0.48.5" },
-    { name = "windows_x86_64_gnu", version = "0.48.5" },
-    { name = "windows-targets", version = "0.48.5" },
-    { name = "windows-sys", version = "0.48.0" },
-    { name = "phf_shared", version = "0.10.0" },
-    { name = "phf_generator", version = "0.10.0" },
     { name = "windows-sys", version = "0.52.0" },
 ]
 
