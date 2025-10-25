@@ -248,7 +248,13 @@ async fn exec(options: Options, client: imgchest::Client) -> anyhow::Result<()> 
                     })
                     .nsfw(new_post.nsfw);
 
-                for file in new_post.files.iter() {
+                // imgchest only supports uploading 20 images at once for normal users.
+                let first_20_chunk = new_post
+                    .files
+                    .chunks(20)
+                    .next()
+                    .context("missing first 20 images chunk")?;
+                for file in first_20_chunk {
                     let path = file.path.as_ref().context("missing path")?;
                     let file = imgchest::UploadPostFile::from_path(&path)
                         .await
@@ -258,10 +264,27 @@ async fn exec(options: Options, client: imgchest::Client) -> anyhow::Result<()> 
                 }
 
                 println!("  creating new post");
-                let imgchest_post = client
+                let mut imgchest_post = client
                     .create_post(builder)
                     .await
                     .context("failed to create new post")?;
+                post_config.set_id(Some(&*imgchest_post.id));
+
+                // Upload remaining images if we couldn't do it all upfront.
+                if new_post.files.len() > 20 {
+                    // We should have already uploaded the first 20.
+                    for chunk in new_post.files.chunks(20).skip(1) {
+                        let mut files = Vec::with_capacity(chunk.len());
+                        for file in chunk.iter() {
+                            let path = file.path.as_ref().context("missing path")?;
+                            let file = imgchest::UploadPostFile::from_path(&path)
+                                .await
+                                .with_context(|| format!("failed to open image at \"{path}\""))?;
+                            files.push(file);
+                        }
+                        imgchest_post = client.add_post_images(&imgchest_post.id, files).await?;
+                    }
+                }
 
                 // Set descriptions
                 ensure!(new_post.files.len() == imgchest_post.images.len());
@@ -281,8 +304,6 @@ async fn exec(options: Options, client: imgchest::Client) -> anyhow::Result<()> 
                         .await
                         .context("failed to set file descriptions")?;
                 }
-
-                post_config.set_id(Some(&*imgchest_post.id));
 
                 ensure!(imgchest_post.images.len() == new_post.files.len());
                 for (file, imgchest_image) in new_post
