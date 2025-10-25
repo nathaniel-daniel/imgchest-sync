@@ -7,12 +7,25 @@ targets = [
 ]
 
 [advisories]
-ignore = []
+ignore = [
+    # fxhash, wait for deps to scraper update
+    "RUSTSEC-2025-0057",
+]
 
 [licenses]
 confidence-threshold = 0.93
 private = { ignore = true }
-allow = [ "Apache-2.0", "MIT", "Unicode-DFS-2016", "BSD-3-Clause", "ISC", "MPL-2.0", "OpenSSL", "Unicode-3.0" ]
+allow = [ 
+    "Apache-2.0",
+    "BSD-3-Clause",
+    "CDLA-Permissive-2.0",
+    "ISC",
+    "MIT",
+    "MPL-2.0",
+    "OpenSSL",
+    "Unicode-3.0",
+    "Unicode-DFS-2016", 
+]
 exceptions = []
 
 [[licenses.clarify]]
@@ -31,7 +44,7 @@ license-files = [
 multiple-versions = "warn"
 highlight = "all"
 skip = [
-    { name = "windows-sys", version = "0.52.0" },
+    { name = "windows-sys", version = "0.60.2" },
 ]
 
 [sources]

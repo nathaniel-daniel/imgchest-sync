@@ -133,7 +133,7 @@ impl Config {
     }
 
     /// Get the post config mutably.
-    pub fn post_mut(&mut self) -> PostConfig {
+    pub fn post_mut(&mut self) -> PostConfig<'_> {
         let table = self
             .document
             .as_table_mut()
@@ -213,7 +213,7 @@ impl PostConfig<'_> {
     }
 
     /// Iter over the files.
-    pub fn files(&self) -> PostConfigFilesArray {
+    pub fn files(&self) -> PostConfigFilesArray<'_> {
         let item = self
             .table
             .get("files")
@@ -246,7 +246,7 @@ pub struct PostConfigFilesArray<'a> {
 
 impl PostConfigFilesArray<'_> {
     /// Iter over files.
-    pub fn iter(&self) -> impl Iterator<Item = PostConfigFile> {
+    pub fn iter(&self) -> impl Iterator<Item = PostConfigFile<'_>> {
         self.array.iter().map(|table| PostConfigFile { table })
     }
 
