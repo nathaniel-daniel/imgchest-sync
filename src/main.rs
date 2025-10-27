@@ -563,7 +563,16 @@ async fn update_online_post(
     }
 
     if !files_to_add.is_empty() {
-        let imgchest_post = client.add_post_images(id, files_to_add).await?;
+        let mut imgchest_post = None;
+        let mut files_to_add_iter = files_to_add.into_iter();
+        while !files_to_add_iter.as_slice().is_empty() {
+            imgchest_post = Some(
+                client
+                    .add_post_images(id, files_to_add_iter.by_ref().take(20))
+                    .await?,
+            );
+        }
+        let imgchest_post = imgchest_post.expect("imgchest_post should be populated");
         for (i, file_index) in files_to_add_indicies.into_iter().enumerate() {
             let imgchest_image = &imgchest_post.images[old_post.files.len() + i];
             let new_post_file = &mut new_post.files[file_index];
