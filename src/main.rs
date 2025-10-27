@@ -11,6 +11,7 @@ use crate::post::Post;
 use crate::post::PostDiff;
 use crate::post::PostFile;
 use crate::post::PostPrivacy;
+use crate::util::add_post_images_batched;
 use anyhow::ensure;
 use anyhow::Context;
 use camino::Utf8Path;
@@ -563,16 +564,7 @@ async fn update_online_post(
     }
 
     if !files_to_add.is_empty() {
-        let mut imgchest_post = None;
-        let mut files_to_add_iter = files_to_add.into_iter();
-        while !files_to_add_iter.as_slice().is_empty() {
-            imgchest_post = Some(
-                client
-                    .add_post_images(id, files_to_add_iter.by_ref().take(20))
-                    .await?,
-            );
-        }
-        let imgchest_post = imgchest_post.expect("imgchest_post should be populated");
+        let imgchest_post = add_post_images_batched(client, id, files_to_add, 20).await?;
         for (i, file_index) in files_to_add_indicies.into_iter().enumerate() {
             let imgchest_image = &imgchest_post.images[old_post.files.len() + i];
             let new_post_file = &mut new_post.files[file_index];

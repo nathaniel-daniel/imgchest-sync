@@ -1,3 +1,4 @@
+use anyhow::Context;
 use std::path::Path;
 
 /// Try to read a string from a path, if it exists.
@@ -20,4 +21,23 @@ where
     tokio::fs::rename(tmp_path, path).await?;
 
     Ok(())
+}
+
+/// Add images from a vec to a post by id, batching so it can handle arbitrary sizes.
+pub async fn add_post_images_batched(
+    client: &imgchest::Client,
+    id: &str,
+    images: Vec<imgchest::UploadPostFile>,
+    batch_size: usize,
+) -> anyhow::Result<imgchest::Post> {
+    let mut imgchest_post = None;
+    let mut images = images.into_iter();
+    while !images.as_slice().is_empty() {
+        imgchest_post = Some(
+            client
+                .add_post_images(id, images.by_ref().take(batch_size))
+                .await?,
+        );
+    }
+    imgchest_post.context("missing imgchest post")
 }
