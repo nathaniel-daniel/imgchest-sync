@@ -1,4 +1,7 @@
 use anyhow::Context;
+use camino::Utf8Path;
+use sha2::Digest;
+use sha2::Sha256;
 use std::path::Path;
 
 /// Try to read a string from a path, if it exists.
@@ -40,4 +43,17 @@ pub async fn add_post_images_batched(
         );
     }
     imgchest_post.context("missing imgchest post")
+}
+
+/// Hash a file ath the given path, getting the result as a hex string.
+pub fn hash_file_at_path(path: &Utf8Path) -> anyhow::Result<String> {
+    let mut file =
+        std::fs::File::open(path).with_context(|| format!("failed to open \"{path}\""))?;
+
+    let mut hasher = Sha256::new();
+    std::io::copy(&mut file, &mut hasher)?;
+    let hash = hasher.finalize();
+    let hex_hash = base16ct::lower::encode_string(&hash);
+
+    anyhow::Ok(hex_hash)
 }

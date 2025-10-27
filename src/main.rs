@@ -12,6 +12,7 @@ use crate::post::PostDiff;
 use crate::post::PostFile;
 use crate::post::PostPrivacy;
 use crate::util::add_post_images_batched;
+use crate::util::hash_file_at_path;
 use anyhow::ensure;
 use anyhow::Context;
 use camino::Utf8Path;
@@ -404,18 +405,6 @@ async fn create_post_from_post_config(
         nsfw,
         files,
     })
-}
-
-fn hash_file_at_path(path: &Utf8Path) -> anyhow::Result<String> {
-    let mut file =
-        std::fs::File::open(path).with_context(|| format!("failed to open \"{path}\""))?;
-
-    let mut hasher = Sha256::new();
-    std::io::copy(&mut file, &mut hasher)?;
-    let hash = hasher.finalize();
-    let hex_hash = base16ct::lower::encode_string(&hash);
-
-    anyhow::Ok(hex_hash)
 }
 
 async fn create_post_from_online(client: &imgchest::Client, id: &str) -> anyhow::Result<Post> {
