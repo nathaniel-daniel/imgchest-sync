@@ -820,7 +820,7 @@ dependencies = [
 [[package]]
 name = "imgchest"
 version = "0.0.0"
-source = "git+https://github.com/nathaniel-daniel/imgchest-rs#989372a02d62dd5cb94cba0dc627b1b8fb7508d9"
+source = "git+https://github.com/nathaniel-daniel/imgchest-rs#199d4a416bc0678541e4add86440b3dc0883b3ab"
 dependencies = [
  "itoa",
  "jiff",
