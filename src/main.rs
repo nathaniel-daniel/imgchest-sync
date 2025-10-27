@@ -11,6 +11,8 @@ use crate::post::Post;
 use crate::post::PostDiff;
 use crate::post::PostFile;
 use crate::post::PostPrivacy;
+use crate::util::add_post_images_batched;
+use crate::util::hash_file_at_path;
 use anyhow::ensure;
 use anyhow::Context;
 use camino::Utf8Path;
@@ -405,18 +407,6 @@ async fn create_post_from_post_config(
     })
 }
 
-fn hash_file_at_path(path: &Utf8Path) -> anyhow::Result<String> {
-    let mut file =
-        std::fs::File::open(path).with_context(|| format!("failed to open \"{path}\""))?;
-
-    let mut hasher = Sha256::new();
-    std::io::copy(&mut file, &mut hasher)?;
-    let hash = hasher.finalize();
-    let hex_hash = base16ct::lower::encode_string(&hash);
-
-    anyhow::Ok(hex_hash)
-}
-
 async fn create_post_from_online(client: &imgchest::Client, id: &str) -> anyhow::Result<Post> {
     let imgchest_post = client.get_post(id).await?;
 
@@ -563,7 +553,7 @@ async fn update_online_post(
     }
 
     if !files_to_add.is_empty() {
-        let imgchest_post = client.add_post_images(id, files_to_add).await?;
+        let imgchest_post = add_post_images_batched(client, id, files_to_add, 20).await?;
         for (i, file_index) in files_to_add_indicies.into_iter().enumerate() {
             let imgchest_image = &imgchest_post.images[old_post.files.len() + i];
             let new_post_file = &mut new_post.files[file_index];

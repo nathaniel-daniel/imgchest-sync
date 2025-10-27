@@ -1,3 +1,7 @@
+use anyhow::Context;
+use camino::Utf8Path;
+use sha2::Digest;
+use sha2::Sha256;
 use std::path::Path;
 
 /// Try to read a string from a path, if it exists.
@@ -20,4 +24,36 @@ where
     tokio::fs::rename(tmp_path, path).await?;
 
     Ok(())
+}
+
+/// Add images from a vec to a post by id, batching so it can handle arbitrary sizes.
+pub async fn add_post_images_batched(
+    client: &imgchest::Client,
+    id: &str,
+    images: Vec<imgchest::UploadPostFile>,
+    batch_size: usize,
+) -> anyhow::Result<imgchest::Post> {
+    let mut imgchest_post = None;
+    let mut images = images.into_iter();
+    while !images.as_slice().is_empty() {
+        imgchest_post = Some(
+            client
+                .add_post_images(id, images.by_ref().take(batch_size))
+                .await?,
+        );
+    }
+    imgchest_post.context("missing imgchest post")
+}
+
+/// Hash a file ath the given path, getting the result as a hex string.
+pub fn hash_file_at_path(path: &Utf8Path) -> anyhow::Result<String> {
+    let mut file =
+        std::fs::File::open(path).with_context(|| format!("failed to open \"{path}\""))?;
+
+    let mut hasher = Sha256::new();
+    std::io::copy(&mut file, &mut hasher)?;
+    let hash = hasher.finalize();
+    let hex_hash = base16ct::lower::encode_string(&hash);
+
+    anyhow::Ok(hex_hash)
 }
