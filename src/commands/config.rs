@@ -1,7 +1,7 @@
 use crate::UserConfig;
+use anyhow::Context;
 use anyhow::bail;
 use anyhow::ensure;
-use anyhow::Context;
 use std::path::Path;
 
 #[derive(Debug, argh::FromArgs)]
@@ -28,11 +28,17 @@ pub async fn exec(
     mut config: UserConfig,
 ) -> anyhow::Result<()> {
     if options.key.is_some() {
-        ensure!(options.value.is_some(), "if a config key (--key, -k) is specified, a config value (--value, -v) must also be specified");
+        ensure!(
+            options.value.is_some(),
+            "if a config key (--key, -k) is specified, a config value (--value, -v) must also be specified"
+        );
     }
 
     if options.value.is_some() {
-        ensure!(options.key.is_some(), "if a config value (--value, -v) is specified, a config key (--key, -k) must also be specified");
+        ensure!(
+            options.key.is_some(),
+            "if a config value (--value, -v) is specified, a config key (--key, -k) must also be specified"
+        );
     }
 
     if let (Some(key), Some(value)) = (options.key.as_deref(), options.value.as_deref()) {

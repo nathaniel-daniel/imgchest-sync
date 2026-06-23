@@ -13,8 +13,8 @@ use crate::post::PostFile;
 use crate::post::PostPrivacy;
 use crate::util::add_post_images_batched;
 use crate::util::hash_file_at_path;
-use anyhow::ensure;
 use anyhow::Context;
+use anyhow::ensure;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use directories::ProjectDirs;
@@ -148,10 +148,10 @@ async fn exec(options: Options, client: imgchest::Client) -> anyhow::Result<()> 
             continue;
         }
 
-        if let Some(filter_regex) = filter_regex.as_ref() {
-            if !filter_regex.is_match(entry_file_name) {
-                continue;
-            }
+        if let Some(filter_regex) = filter_regex.as_ref()
+            && !filter_regex.is_match(entry_file_name)
+        {
+            continue;
         }
 
         let dir_path = input.join(entry_path);
@@ -308,11 +308,7 @@ async fn exec(options: Options, client: imgchest::Client) -> anyhow::Result<()> 
                 }
 
                 ensure!(imgchest_post.images.len() == new_post.files.len());
-                for (file, imgchest_image) in new_post
-                    .files
-                    .iter_mut()
-                    .zip(Vec::from(imgchest_post.images).into_iter())
-                {
+                for (file, imgchest_image) in new_post.files.iter_mut().zip(imgchest_post.images) {
                     file.id = Some(imgchest_image.id.into());
                 }
 

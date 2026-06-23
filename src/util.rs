@@ -1,5 +1,6 @@
 use anyhow::Context;
 use camino::Utf8Path;
+use digest_io::IoWrapper;
 use sha2::Digest;
 use sha2::Sha256;
 use std::path::Path;
@@ -19,9 +20,9 @@ where
     P: AsRef<Path>,
 {
     let path = path.as_ref();
-    let tmp_path = nd_util::with_push_extension(path, "temp");
-    tokio::fs::write(&tmp_path, data).await?;
-    tokio::fs::rename(tmp_path, path).await?;
+    let temp_path = path.with_added_extension("temp");
+    tokio::fs::write(&temp_path, data).await?;
+    tokio::fs::rename(&temp_path, path).await?;
 
     Ok(())
 }
@@ -38,7 +39,7 @@ pub async fn add_post_images_batched(
     while !images.as_slice().is_empty() {
         imgchest_post = Some(
             client
-                .add_post_images(id, images.by_ref().take(batch_size))
+                .add_post_images(id, images.by_ref().take(batch_size).collect())
                 .await?,
         );
     }
@@ -50,9 +51,9 @@ pub fn hash_file_at_path(path: &Utf8Path) -> anyhow::Result<String> {
     let mut file =
         std::fs::File::open(path).with_context(|| format!("failed to open \"{path}\""))?;
 
-    let mut hasher = Sha256::new();
+    let mut hasher = IoWrapper(Sha256::new());
     std::io::copy(&mut file, &mut hasher)?;
-    let hash = hasher.finalize();
+    let hash = hasher.0.finalize();
     let hex_hash = base16ct::lower::encode_string(&hash);
 
     anyhow::Ok(hex_hash)
