@@ -5,10 +5,10 @@ edition = "2024"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-anyhow = "1.0.102"
+anyhow = "1.0.103"
 argh = "0.1.19"
 base16ct = { version = "1.0.0", features = [ "alloc" ] }
-camino = { version = "1.2.3", features = [ "serde1" ] }
+camino = { version = "1.2.4", features = [ "serde1" ] }
 digest-io = "0.1.0"
 directories = "6.0.0"
 imgchest = { git = "https://github.com/nathaniel-daniel/imgchest-rs", version = "0.0.0", default-features = false }
